@@ -1,0 +1,10 @@
+[package]
+name = "tjcl_error_format"
+version = "0.0.1"
+edition = "2021"
+authors = ["Tsukuyomi Code Lab"]
+license = "MIT OR Apache-2.0"
+description = "Static string formatting for tjcl_error in no_std embedded systems"
+
+[dependencies]
+tjcl_error_common = { path = "../common_error" }

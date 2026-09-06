@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "common_error",
+    "format",
+    "tests",
+]
+
+resolver = "2"

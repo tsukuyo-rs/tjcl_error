@@ -1,0 +1,15 @@
+# Cargo ビルド成果物
+/target/
+**/*.rs.bk
+*.bk
+
+# IDE / エディタ
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ログファイル
+*.log
