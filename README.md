@@ -1,6 +1,6 @@
 # tjcl_error
 
-[![CI](https://github.com/ユーザー名/tjcl_error/actions/workflows/ci.yml/badge.svg)](https://github.com/ユーザー名/tjcl_error/actions/workflows/ci.yml)
+[![CI](https://github.com/tsukuyo-rs/tjcl_error/actions/workflows/ci.yml/badge.svg)](https://github.com/tsukuyo-rs/tjcl_error/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![no_std](https://img.shields.io/badge/Rust-no__std-lightgrey.svg)](https://docs.rust-embedded.org/)
 
