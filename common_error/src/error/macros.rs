@@ -13,7 +13,7 @@ macro_rules! define_error_kind {
         impl Kind {
             pub const fn from_u8(val: u8) -> Option<Self> {
                 match val {
-                    $( $val => Some(Self::$variant)),*
+                    $( $val => Some(Self::$variant), )*
                     _ => None,
                 }
             }
@@ -53,7 +53,7 @@ macro_rules! define_error_kind {
 
                 // kindからdetailの復元
                 match kind {
-                    $( Kind::$variant => match $sub_type::from_u8(child) {
+                    $( Kind::$variant => match <$sub_type>::from_u8(child) {
                         Some(sub) => Some(ErrorKind::$variant(sub)),
                         None => None,
                     },)*
@@ -80,7 +80,7 @@ macro_rules! define_error_detail {
 
             pub const fn from_u8(val: u8) -> Option<Self> {
                 match val {
-                    $( $val => Some(Self::$variant)),*
+                    $( $val => Some(Self::$variant), )*
                     _ => None,
                 }
             }
