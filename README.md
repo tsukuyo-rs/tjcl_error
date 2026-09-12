@@ -84,15 +84,17 @@ tjcl_error/
 ```rust
 use crate::define_error_detail;
 
-/// I2C通信サブエラー詳細
-define_error_detail!(I2cSub {
-    /// バスビジー
-    BusBusy = 0x01,
-    /// アドレス送信時のNACK応答
-    AddressNack = 0x03,
-    /// 通信タイムアウト
-    Timeout = 0x05,
-});
+define_error_detail!(
+    /// I2C通信サブエラー詳細
+    I2cSub {
+        /// バスビジー
+        BusBusy = 0x01,
+        /// アドレス送信時のNACK応答
+        AddressNack = 0x03,
+        /// 通信タイムアウト
+        Timeout = 0x05,
+    }
+);
 ```
 
 ### 2. 親エラーへの登録（`kind.rs`）
