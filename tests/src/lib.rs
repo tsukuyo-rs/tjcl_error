@@ -6,6 +6,8 @@ mod tests {
     #[test]
     fn test_i2c_roundtrip() {
         let err = ErrorKind::I2C(I2cSub::AddressNack);
+        assert_eq!(err.kind(), Kind::I2C);
+
         let code = err.to_u16();
 
         // 0x10 << 8 | 0x03 == 0x1003
@@ -18,6 +20,8 @@ mod tests {
     #[test]
     fn test_system_roundtrip() {
         let err = ErrorKind::System(SystemSub::Timeout);
+        assert_eq!(err.kind(), Kind::System);
+
         let code = err.to_u16();
 
         // 0x00 << 8 | 0x04 == 0x0004

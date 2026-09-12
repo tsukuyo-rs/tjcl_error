@@ -1,7 +1,11 @@
 [package]
 name = "tjcl_error_common"
-version = "0.0.1"
-edition = "2021"
-authors = ["Tsukuyomi Code Lab"]
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Zero-allocation packed error handling template for no_std embedded systems"

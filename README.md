@@ -1,8 +1,10 @@
 # tjcl_error
 
 [![CI](https://github.com/tsukuyo-rs/tjcl_error/actions/workflows/ci.yml/badge.svg)](https://github.com/tsukuyo-rs/tjcl_error/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT-0](https://img.shields.io/badge/License-MIT--0-blue.svg)](LICENSE)
 [![no_std](https://img.shields.io/badge/Rust-no__std-lightgrey.svg)](https://docs.rust-embedded.org/)
+
+> 🌐 **English Guide**: An English overview is available [below](#english).
 
 **車載・組み込み通信向け、ビット節約・ゼロアロケーションのエラー管理パッケージひな型（`no_std` / Rust）**
 
@@ -142,14 +144,61 @@ cargo test
 
 ## ライセンスとクレジットについて (License & Attribution)
 
-本ソフトウェアは **[MIT License](LICENSE)** のもとで公開されています。商用・非商用を問わず、どなたでも自由にご利用・改変いただけます。
+本ソフトウェアは **[MIT-0 (MIT No Attribution License)](LICENSE)** のもとで公開されています。商用・非商用を問わず、どなたでも自由にご利用・改変・組み込みいただけます。
 
-* **個人でのご利用**:
-  クレジット表記や著作権表示の保持は **不要** です。ご自身のプロジェクトに取り込み、自由に改造してお使いください。
-* **法人・企業でのご利用**:
-  本ひな型の利用にあたり、法的な強制や厳格な義務付けはいたしません。**各企業・開発者の倫理（オナーシステム）** にお任せいたします。
-  もし本ひな型が業務の効率化や製品開発のお役に立ちましたら、社内リポジトリのコードヘッダーや、製品ドキュメントの片隅などにクレジット（`Tsukuyomi Code Lab`）を残していただければ大変励みになります。
+* **表示義務なし（No Attribution Required）**:
+  クレジット表記や著作権表示、ライセンス条文の保持義務は **一切不要** です。ご自身のファームウェアや製品コード内にコピー＆ペーストし、基板仕様に合わせて自由に書き換えてご利用いただけます（企業の法務審査や製品マニュアルへのライセンス表記負担も発生しません）。
+* **オナーシステム（クレジット表記のお願い）**:
+  法的な義務付けはいたしませんが、もし本ひな型が業務の効率化や製品開発のお役に立ちましたら、リポジトリへのStarや、コードヘッダー・ドキュメントの片隅などにクレジット（`Tsukuyomi Japan Code Lab` / `TJCL`）を残していただければ大変励みになります。
 
 ---
 
-Copyright (c) 2026 Tsukuyomi Code Lab
+## English
+
+### Overview
+`tjcl_error` is a zero-allocation, bit-conserving error handling template in Rust (`no_std`) designed for bandwidth- and resource-constrained embedded systems (such as CAN bus, UART, SPI, I2C, and Flash/EEPROM logging).
+
+Rather than being a rigid external dependency, it is designed as a **white-box template**: copy and paste the code directly into your embedded project and customize the error enums to match your hardware specifications.
+
+### Key Features
+1. **Strict `#![no_std]` & Zero Heap Allocation**:
+   Guaranteed 0 bytes of dynamic allocation (`alloc`). No heap fragmentation, exhaustion, or allocator panics. Strings reference `&'static str` stored directly in Flash memory.
+2. **Zero External Dependencies**:
+   Built entirely with standard Rust `macro_rules!`. No procedural macro overhead (`syn`/`quote`), ensuring near-instant compilation.
+3. **Deterministic & Ultra-Fast**:
+   Encodes errors in a few clock cycles via simple bit shifts and bitwise OR (`LSL`, `ORR`). WCET (Worst-Case Execution Time) is fully predictable, with `const fn` support.
+4. **Single Source of Truth**:
+   The `macro_rules!` macros define both encoding and decoding in one place, preventing desynchronization bugs common in C `#define` patterns.
+5. **High Customizability**:
+   Packs into a 16-bit integer (`u16`) by default (8-bit category + 8-bit detail). Can be easily adapted to 8-bit (4+4 nibbles) or 32-bit automotive DTC (Diagnostic Trouble Code) formats.
+
+### Quick Example
+
+```rust
+use tjcl_error_common::{ErrorKind, I2cSub};
+use tjcl_error_format::ErrorFormat;
+
+let err = ErrorKind::I2C(I2cSub::AddressNack);
+
+// 1. Pack into 16-bit integer for CAN bus / Flash log (0x10 << 8 | 0x03 = 0x1003)
+let raw_code: u16 = err.to_u16();
+assert_eq!(raw_code, 0x1003);
+
+// 2. Unpack received integer (returns None for unmapped codes)
+let restored = ErrorKind::from_u16(raw_code);
+assert_eq!(restored, Some(err));
+
+// 3. Static Flash string representation
+let kind_name   = err.kind_str();   // "I2C"
+let detail_name = err.detail_str(); // "AddressNack"
+let full_name   = err.full_str();   // "I2C::AddressNack"
+```
+
+### License
+Licensed under **[MIT-0 (MIT No Attribution License)](LICENSE)**.
+You are free to copy, modify, distribute, and embed this code into proprietary, commercial, or open-source products **without any requirement to retain copyright notices or license text**.
+Voluntary attribution to `Tsukuyomi Japan Code Lab` (`TJCL`) under the honor system is always appreciated!
+
+---
+
+Copyright (c) 2026 Tsukuyomi Japan Code Lab

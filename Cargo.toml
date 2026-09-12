@@ -4,5 +4,14 @@ members = [
     "format",
     "tests",
 ]
-
 resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+authors = ["Tsukuyomi Japan Code Lab <contact.tjcl@gmail.com>"]
+license = "MIT-0"
+repository = "https://github.com/tsukuyo-rs/tjcl_error"
+readme = "README.md"
+keywords = ["embedded", "no-std", "error", "can", "automotive"]
+categories = ["embedded", "no-std"]
