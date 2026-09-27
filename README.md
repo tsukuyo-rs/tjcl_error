@@ -12,11 +12,11 @@
 
 ## 概要
 
-`tjcl_error` は、CAN 通信、シリアル通信（UART/SPI/I2C）、Flash / EEPROM ログ記録など、**通信帯域やストレージ領域が制約された組み込みシステム**のために設計されたエラー管理パッケージのひな型です。
+`tjcl_error` は、Classic CAN 通信、シリアル通信（UART/SPI/I2C）、Flash / EEPROM ログ記録など、**通信帯域やストレージ領域が制約された組み込みシステム**のためのエラー管理テンプレートです。デバッグ出力やキャラクタLCD/OLED等の表示器を備えたシステムへの適用も考慮しています。
 
-外部ライブラリ（crates.io）として固定されたブラックボックスではなく、**「プロジェクトに取り込み、基板仕様に合わせて書き換えて使う白箱」**として設計されています。
+外部の固定化されたクレートに依存し続けるのではなく、**「プロジェクトに取り込み、ハードウェア仕様や通信規約に合わせて書き換えて使う白箱」**として設計されています。
 
-```
+```text
 [プログラム内]                          [通信・Flash記録時]
 型安全な親子Enum                        固定長ビット列
 ErrorKind::I2C(I2cSub::AddressNack)  <--->  0x1003 (16-bit / 2バイト)
@@ -26,50 +26,53 @@ ErrorKind::I2C(I2cSub::AddressNack)  <--->  0x1003 (16-bit / 2バイト)
 
 ## 解決する課題
 
-### 1. 通信帯域への配慮（Bit Conservation）
-CAN フレーム（ペイロード最大8バイト）や低帯域な通信パケットでは、エラー情報を大きな整数や可変長文字列として送ることが難しい場面があります。本ひな型は、親カテゴリ（Kind: 8bit）と詳細（Detail: 8bit）をパッキングし、**2 バイト（u16）** として扱えるよう設計しています（4bit + 4bit の 1 バイト運用への改変例も想定しています）。
+### 1. 通信帯域・ストレージへの配慮（Bit Conservation）
+Classic CAN フレーム（ペイロード最大 8 バイト）や低帯域シリアル通信では、エラー情報を大きなデータや可変長文字列のまま送信することは非効率です。本ひな型では、親カテゴリ（Kind: 8bit）と詳細（Detail: 8bit）を 1 つの **16ビット整数（`u16`）** にパッキングして扱います。
 
-### 2. 手動管理の煩雑さを Rust マクロで解消
-C言語では、エラー番号の定義・ビットシフト・デコード用 `switch-case`・文字列テーブルをそれぞれ別々に管理する必要があり、追加・変更の際に対応漏れが起きやすい構造でした。本ひな型は、**Rust の標準マクロ（`macro_rules!`）により 1 箇所の定義から関連する実装をまとめて生成（Single Source of Truth）** する構成をとっています。
+### 2. マクロによる型定義と変換ロジックの一元化
+C言語等で発生しやすい「エラー番号定義」「ビットシフト処理」「復元用 `switch-case`」の手動二重管理を解消します。標準マクロ（`macro_rules!`）により、Enum定義から相互変換関数（`to_u16` / `from_u16`）を一括生成します。
 
-### 3. コンパイラによる網羅性チェック
-新しいエラーを定義した際、対応する文字列の追加を忘れると、**Rust コンパイラが網羅性エラー（E0004）を出力してビルドを停止**します。表示の抜けがサイレントに混入しにくい設計になっています。
+### 3. 用途に応じたクレート分離（制御系と表示・ログ系の両立）
+文字列変換ロジックを別クレート（`format`）に分離しています。文字列を必要としない制御系タスクなどでは `common_error` のみを取り込み、文字列機能を取り込まない構成にできます。一方、表示器やログ機能が必要なノードでは `format` を追加導入することで、同じエラー定義を共有できます。
+
+### 4. コンパイラによる網羅性チェック（文字列機能利用時）
+`format` クレートを導入している構成では、新しいエラーバリアントを追加した際に文字列化 `match` 式の更新を忘れると、**Rust コンパイラが網羅性エラー（E0004）を出力**してビルドを停止します。文字列対応の抜け漏れにコンパイル段階で気付くことができます。
 
 ---
 
-## 5つの特徴
+## 主な特徴
 
-1. **`#![no_std]` ＆ ゼロ動的確保（Zero Allocation）**
-   ヒープメモリ（`alloc`）を使用せず、動的確保に伴うパニックやメモリ断片化のリスクを避けています。文字列は Flash メモリ上の `&'static str` を直接参照します。
-2. **外部クレート依存ゼロ**
-   `syn` や `quote` 等の手続き型マクロを使わず、標準の `macro_rules!` だけで完結しているため、ビルドへの影響を最小限に抑えられます。
-3. **決定論的な動作**
-   エンコードはビットシフトと論理和（`LSL`, `ORR`）のみで実行されるため、WCET（最悪実行時間）を把握しやすい構造です。すべて `const fn` であり、コンパイル時評価にも対応しています。
-4. **徹底したカプセル化**
-   内部モジュール構造は非公開（`mod`）に閉じ込められ、トップレベルの `pub use` のみで利用できる明示的な API 設計となっています。
-5. **高いカスタマイズ性**
-   `u16` だけでなく、ニブル分割による `u8`（4bit + 4bit）や、車載 DTC 向けの `u32` など、プロジェクトの要件に応じてマクロの数行を変更することでスケールできるよう設計しています。
+1. **`#![no_std]` ＆ 動的メモリ確保なし（Zero Allocation）**  
+   本パッケージはヒープ確保（`alloc`）を行わず、ヒープ枯渇や断片化の原因になりません。文字列機能も静的領域の文字列スライス（`&'static str`）を直接返します。
+2. **外部依存の排除**  
+   `std` やサードパーティ製クレートに依存しません（`syn` や `quote` などの手続き型マクロも不使用）。
+3. **単純で予測しやすいビット演算**  
+   パッキング処理はシフト演算とビットORのみで行われ、`const fn` に対応しています。
+4. **責務を分離したクレート構成**  
+   コアのエラー定義（`common_error`）と文字列表現（`format`）が分離されており、要件に合わせて必要な機能のみを選択できます。
+5. **ビットレイアウトの改変可能性**  
+   提供している `u16`（8bit + 8bit）実装をベースに、要件に応じて 4bit + 4bit（`u8`）や車載 DTC 形式（24/32bit）への改変ひな型として活用できます。
 
 ---
 
 ## ディレクトリ構成
 
-```
+```text
 tjcl_error/
 ├── Cargo.toml            # ワークスペース定義
-├── common_error/         # 【コア】エラーの型定義・u16パッキングマクロ
+├── common_error/         # 【コア】エラーの型定義・u16パッキングマクロ（依存クレートなし）
 │   └── src/
-│       ├── lib.rs        # 公開API（pub use カプセル化）
+│       ├── lib.rs        # 公開API
 │       └── error/
 │           ├── macros.rs # define_error_kind! / define_error_detail!
 │           ├── kind.rs   # 親Enum定義
 │           ├── i2c.rs    # 子Enum定義（I2Cの例）
 │           └── system.rs # 子Enum定義（Systemの例）
-├── format/               # 【文字列表現】Flash静的文字列変換トレイト
+├── format/               # 【文字列表現】静的文字列変換トレイト（common_errorに依存）
 │   └── src/
 │       ├── lib.rs
 │       └── format.rs     # ErrorFormat トレイト実装
-└── tests/                # 【テスト】本番コードを汚さない隔離テスト子クレート
+└── tests/                # 【テスト】検証用テスト
     └── src/
         └── lib.rs        # 往復変換・未定義コード・文字列化の検証テスト
 ```
@@ -78,39 +81,52 @@ tjcl_error/
 
 ## クイックスタート
 
-### 1. 子エラーの定義（例: `i2c.rs`）
-`define_error_detail!` マクロを用いて、ペリフェラル固有のエラー詳細を定義します：
+### 1. エラーの定義（`common_error` 側）
+
+子エラー（詳細）と親カテゴリをマクロで定義します：
 
 ```rust
+// 子エラー（例: i2c.rs）
 use crate::define_error_detail;
 
 define_error_detail!(
-    /// I2C通信サブエラー詳細
     I2cSub {
-        /// バスビジー
         BusBusy = 0x01,
-        /// アドレス送信時のNACK応答
         AddressNack = 0x03,
-        /// 通信タイムアウト
         Timeout = 0x05,
     }
 );
-```
 
-### 2. 親エラーへの登録（`kind.rs`）
-ファイル先頭で子エラーを明示的に `use` し、親ID（8bit）と結びつけます：
-
-```rust
+// 親カテゴリ（例: kind.rs）
 use crate::define_error_kind;
 use crate::error::i2c::I2cSub;
 
 define_error_kind! {
-    /// I2Cペリフェラル通信異常 (親ID: 0x10)
     I2C = 0x10 => I2cSub,
 }
 ```
 
-### 3. 利用コード例
+### 2. 利用パターンA: 文字列不要の最小構成（制御系マイコンなど）
+
+`Cargo.toml` に `tjcl_error_common` のみを追加します。`format` を依存に加えないことで、文字列機能を取り込まない構成にできます。
+
+```rust
+use tjcl_error_common::{ErrorKind, I2cSub};
+
+let err = ErrorKind::I2C(I2cSub::AddressNack);
+
+// ① 16-bit 整数へのパッキング (0x10 << 8 | 0x03 = 0x1003)
+let raw_code: u16 = err.to_u16();
+assert_eq!(raw_code, 0x1003);
+
+// ② 受信した整数データからの復元（未定義コードは None）
+let restored = ErrorKind::from_u16(raw_code);
+assert_eq!(restored, Some(err));
+```
+
+### 3. 利用パターンB: 文字列表現の利用（デバッグ・表示器向け）
+
+文字列機能が必要な場合は、`tjcl_error_common` に加えて `tjcl_error_format` も依存に追加します。
 
 ```rust
 use tjcl_error_common::{ErrorKind, I2cSub};
@@ -118,40 +134,37 @@ use tjcl_error_format::ErrorFormat;
 
 let err = ErrorKind::I2C(I2cSub::AddressNack);
 
-// ① CAN/Flash送信用の 16-bit 整数にパック (0x10 << 8 | 0x03 = 0x1003)
-let raw_code: u16 = err.to_u16();
-assert_eq!(raw_code, 0x1003);
+// &'static str を直接取得（ヒープ確保なし）
+let kind_name: &'static str = err.kind_str();     // "I2C"
+let detail_name: &'static str = err.detail_str(); // "AddressNack"
+let full_name: &'static str = err.full_str();     // "I2C::AddressNack"
 
-// ② 受信した整数データからの復元（未定義コードは安全に None）
-let restored = ErrorKind::from_u16(raw_code);
-assert_eq!(restored, Some(err));
-
-// ③ 文字列の取得（ゼロアロケーション / Flash上の静的文字列）
-let kind_name   = err.kind_str();   // "I2C"
-let detail_name = err.detail_str(); // "AddressNack"
-let full_name   = err.full_str();   // "I2C::AddressNack"
+// 取得した文字列は、バッファコピー不要でそのまま表示APIやロガーに渡せます
+// 例: display.draw_text(full_name);
+// 例: defmt::info!("{=str}", full_name);
 ```
 
 ---
 
-## テストの実行
+## カスタマイズ（ビットレイアウトの改変例）
 
-ルートディレクトリからワークスペース全体を一括テストできます：
-
-```bash
-cargo test
-```
+本ひな型は親 8bit / 子 8bit の 16bit 設計です。4bit + 4bit（8bit）や車載 DTC（24/32bit）へ変更する場合は、`macros.rs` 内の型（`u8`/`u16`）、シフト幅、マスク処理を対象の要件に合わせて調整してください。
 
 ---
 
-## ライセンスとクレジットについて (License & Attribution)
+## ライセンスについて (License)
 
-本ソフトウェアは **[MIT-0 (MIT No Attribution License)](LICENSE)** のもとで公開されています。商用・非商用を問わず、どなたでも自由にご利用・改変・組み込みいただけます。
+本ソフトウェアは **[MIT-0 (MIT No Attribution License)](LICENSE)** のもとで公開されています。
 
-* **表示義務なし（No Attribution Required）**:
-  クレジット表記や著作権表示、ライセンス条文の保持義務は **一切不要** です。ご自身のファームウェアや製品コード内にコピー＆ペーストし、基板仕様に合わせて自由に書き換えてご利用いただけます（企業の法務審査や製品マニュアルへのライセンス表記負担も発生しません）。
-* **オナーシステム（クレジット表記のお願い）**:
-  法的な義務付けはいたしませんが、もし本ひな型が業務の効率化や製品開発のお役に立ちましたら、リポジトリへのStarや、コードヘッダー・ドキュメントの片隅などにクレジット（`Tsukuyomi Japan Code Lab` / `TJCL`）を残していただければ大変励みになります。
+* **ライセンス概要**:  
+  MIT-0 は、利用者に著作権表示やライセンス条文の保持（帰属表示）を求めないライセンスです。商用・非商用を問わず、自由に改変・組み込みいただけます。
+* **クレジット表記について（任意）**:  
+  必須ではありませんが、もし本ひな型がお役に立ちましたら、リポジトリへのStarやクレジット（`Tsukuyomi Japan Code Lab`）の任意記載をいただければ幸いです。
+
+---
+
+<!-- リポジトリの原典著作権表記 -->
+Copyright (c) 2026 Tsukuyomi Japan Code Lab
 
 ---
 
@@ -159,11 +172,11 @@ cargo test
 
 ### Overview
 
-`tjcl_error` is a bit-compact, zero-allocation error management package template in Rust (`no_std`), designed for **bandwidth- and storage-constrained embedded systems** such as CAN bus, serial communications (UART/SPI/I2C), and Flash/EEPROM logging.
+`tjcl_error` is a bit-compact, zero-allocation error management package template in Rust (`no_std`), designed for **bandwidth- and storage-constrained embedded systems** such as Classic CAN, serial interfaces (UART/SPI/I2C), and Flash/EEPROM logging. It is also suitable for nodes equipped with displays (LCD/OLED) or debug logging channels.
 
-Rather than being a rigid external dependency (crates.io black-box), it is designed as a **"white-box template to be integrated directly into your project and adapted to your hardware specifications."**
+Rather than acting as a rigid, black-box external dependency, it is designed as a **"white-box template to be integrated directly into your project and adapted to your hardware specifications and communication protocols."**
 
-```
+```text
 [In-Program]                           [Communication / Flash Logging]
 Type-safe hierarchical enums           Fixed-width bit sequence
 ErrorKind::I2C(I2cSub::AddressNack)  <--->  0x1003 (16-bit / 2 bytes)
@@ -174,49 +187,52 @@ ErrorKind::I2C(I2cSub::AddressNack)  <--->  0x1003 (16-bit / 2 bytes)
 ### Problems Solved
 
 #### 1. Bit Conservation for Bandwidth Constraints
-In CAN frames (max payload of 8 bytes) and low-bandwidth communication packets, sending error details as large integers or variable-length strings is often impractical. This template packs a parent category (Kind: 8-bit) and detail (Detail: 8-bit) into **2 bytes (`u16`)** (with adaptability to a 1-byte `u8` / 4-bit + 4-bit layout).
+In Classic CAN frames (max payload of 8 bytes) and low-bandwidth serial links, transmitting error details as wide integers or variable-length strings is impractical. This template packs a parent category (Kind: 8-bit) and detail (Detail: 8-bit) into **2 bytes (`u16`)**.
 
-#### 2. Eliminating Manual Maintenance Overhead with Rust Macros
-In traditional C firmware, error codes, bit-shift logic, decode `switch-case` statements, and string lookup tables had to be maintained separately—frequently causing desynchronization bugs when adding or modifying codes. This template uses **standard Rust declarative macros (`macro_rules!`) as a Single Source of Truth**, generating all associated implementations from a single definition.
+#### 2. Macro-Driven Single Definition for Types and Conversions
+Eliminates manual synchronization between error constants, bit-shifting routines, and decoding `switch-case` tables common in C firmware. Standard declarative macros (`macro_rules!`) generate enum definitions and bidirectional conversions (`to_u16` / `from_u16`) consistently.
 
-#### 3. Compiler-Enforced Exhaustiveness Checking
-When defining a new error variant, forgetting to add its corresponding string representation causes the **Rust compiler to halt the build with an exhaustiveness check error (E0004)**. This prevents missing string mappings from silently leaking into production firmware.
+#### 3. Crate Separation Based on System Requirements
+String formatting logic is separated into an independent crate (`format`). Systems that do not require text output can depend solely on `common_error`, excluding string features from their build. Nodes requiring displays or debug logs can add `format` while sharing the exact same error types.
+
+#### 4. Compiler-Enforced Exhaustiveness (When Using Strings)
+When the `format` crate is integrated, failing to add a string mapping for a newly introduced error variant causes the **Rust compiler to halt the build with an exhaustiveness check error (E0004)**, preventing unmapped errors from going unnoticed.
 
 ---
 
-### 5 Key Features
+### Key Features
 
-1. **`#![no_std]` & Zero Dynamic Allocation**
-   Zero heap allocation (`alloc`). Eliminates the risk of panics, heap exhaustion, or memory fragmentation. All string representations reference `&'static str` located directly in Flash memory.
-2. **Zero External Crate Dependencies**
-   Built exclusively with standard `macro_rules!`—no procedural macros like `syn` or `quote`—minimizing build times and dependency trees.
-3. **Deterministic Execution**
-   Encoding is performed solely through bit shifts and bitwise OR (`LSL`, `ORR`), making WCET (Worst-Case Execution Time) highly predictable. All encoding and decoding routines are `const fn`, fully supporting compile-time evaluation.
-4. **Thorough Encapsulation**
-   Internal submodule structures are kept strictly private (`mod`), exposing only clean, intentional APIs via top-level `pub use`.
-5. **High Customizability**
-   Easily tailored to specific system requirements—from `u16` to nibble-split `u8` (4-bit + 4-bit) or 32-bit automotive DTC (Diagnostic Trouble Code) formats—by adjusting just a few lines in the macros.
+1. **`#![no_std]` & Zero Heap Allocation**  
+   This package performs no dynamic memory allocation (`alloc`) and will not cause heap exhaustion or fragmentation. The formatting crate directly returns static string slices (`&'static str`).
+2. **No Dependency on `std` or Third-Party Crates**  
+   No dependency on `std` or third-party crates (free of procedural macro overhead like `syn` or `quote`).
+3. **Simple, Predictable Bitwise Operations**  
+   Encoding relies purely on shifts and bitwise OR. All encoding and decoding routines are `const fn`.
+4. **Decoupled Crate Architecture**  
+   Core error definitions (`common_error`) and string formatting (`format`) are isolated, allowing users to include string features only when necessary.
+5. **Adaptable Bit Layout**  
+   The provided 16-bit (`u16`, 8+8 bits) implementation serves as a starting point that can be modified to 8-bit (`u8`, 4+4 bits) or 24/32-bit automotive DTC structures.
 
 ---
 
 ### Directory Structure
 
-```
+```text
 tjcl_error/
 ├── Cargo.toml            # Workspace manifest
-├── common_error/         # [Core] Error type definitions & u16 packing macros
+├── common_error/         # [Core] Error type definitions & u16 packing macros (no external dependencies)
 │   └── src/
-│       ├── lib.rs        # Public API (clean pub use encapsulation)
+│       ├── lib.rs        # Public API
 │       └── error/
 │           ├── macros.rs # define_error_kind! / define_error_detail!
 │           ├── kind.rs   # Parent enum definitions
 │           ├── i2c.rs    # Child enum definitions (I2C example)
 │           └── system.rs # Child enum definitions (System example)
-├── format/               # [Formatting] Flash static string conversion traits
+├── format/               # [Formatting] Static string conversion traits (depends on common_error)
 │   └── src/
 │       ├── lib.rs
 │       └── format.rs     # ErrorFormat trait implementation
-└── tests/                # [Tests] Isolated test crate avoiding production bloat
+└── tests/                # [Tests] Verification test suite
     └── src/
         └── lib.rs        # Round-trip conversion, undefined code, and string formatting tests
 ```
@@ -225,39 +241,52 @@ tjcl_error/
 
 ### Quick Start
 
-#### 1. Defining Child Errors (e.g., `i2c.rs`)
-Define peripheral-specific error details using the `define_error_detail!` macro:
+#### 1. Defining Errors (in `common_error`)
+
+Define child details and parent categories using macros:
 
 ```rust
+// Child error (e.g., i2c.rs)
 use crate::define_error_detail;
 
 define_error_detail!(
-    /// I2C communication sub-error details
     I2cSub {
-        /// Bus busy
         BusBusy = 0x01,
-        /// NACK response on address transmission
         AddressNack = 0x03,
-        /// Communication timeout
         Timeout = 0x05,
     }
 );
-```
 
-#### 2. Registering with Parent Error (`kind.rs`)
-Explicitly import the child error at the top of the file and bind it to a parent category ID (8-bit):
-
-```rust
+// Parent category (e.g., kind.rs)
 use crate::define_error_kind;
 use crate::error::i2c::I2cSub;
 
 define_error_kind! {
-    /// I2C peripheral communication error (Parent ID: 0x10)
     I2C = 0x10 => I2cSub,
 }
 ```
 
-#### 3. Usage Example
+#### 2. Usage Pattern A: Minimal Configuration without Strings (Control Systems)
+
+Add only `tjcl_error_common` to your `Cargo.toml`. By omitting `format` from your dependencies, string functionality is excluded entirely.
+
+```rust
+use tjcl_error_common::{ErrorKind, I2cSub};
+
+let err = ErrorKind::I2C(I2cSub::AddressNack);
+
+// 1. Pack into 16-bit integer (0x10 << 8 | 0x03 = 0x1003)
+let raw_code: u16 = err.to_u16();
+assert_eq!(raw_code, 0x1003);
+
+// 2. Unpack from raw integer (returns None for unmapped codes)
+let restored = ErrorKind::from_u16(raw_code);
+assert_eq!(restored, Some(err));
+```
+
+#### 3. Usage Pattern B: Using String Formatting (Displays & Debug Logs)
+
+When human-readable strings are needed, add both `tjcl_error_common` and `tjcl_error_format` to your dependencies.
 
 ```rust
 use tjcl_error_common::{ErrorKind, I2cSub};
@@ -265,41 +294,34 @@ use tjcl_error_format::ErrorFormat;
 
 let err = ErrorKind::I2C(I2cSub::AddressNack);
 
-// 1. Pack into a 16-bit integer for CAN/Flash transmission (0x10 << 8 | 0x03 = 0x1003)
-let raw_code: u16 = err.to_u16();
-assert_eq!(raw_code, 0x1003);
+// Retrieve static strings directly without heap allocation
+let kind_name: &'static str = err.kind_str();     // "I2C"
+let detail_name: &'static str = err.detail_str(); // "AddressNack"
+let full_name: &'static str = err.full_str();     // "I2C::AddressNack"
 
-// 2. Unpack from received raw integer (safely returns None for undefined codes)
-let restored = ErrorKind::from_u16(raw_code);
-assert_eq!(restored, Some(err));
-
-// 3. String representation (zero-allocation / static strings in Flash)
-let kind_name   = err.kind_str();   // "I2C"
-let detail_name = err.detail_str(); // "AddressNack"
-let full_name   = err.full_str();   // "I2C::AddressNack"
+// Pass directly to display APIs or loggers without intermediate buffers:
+// display.draw_text(full_name);
+// defmt::info!("{=str}", full_name);
 ```
 
 ---
 
-### Running Tests
+### Customization (Bit Layout Modification)
 
-Run all workspace tests from the repository root:
-
-```bash
-cargo test
-```
+This template defaults to an 8-bit parent / 8-bit child (`u16`) layout. If adapting to 4-bit + 4-bit (`u8`) or automotive DTCs (24/32-bit), modify the corresponding types, shift widths, and bitmask operations in `macros.rs` according to your requirements.
 
 ---
 
-### License & Attribution
+### License
 
-This software is released under the **[MIT-0 (MIT No Attribution License)](LICENSE)**. You are free to use, modify, and integrate it into any commercial or non-commercial product.
+This software is released under the **[MIT-0 (MIT No Attribution License)](LICENSE)**.
 
-* **No Attribution Required**:
-  Retaining copyright notices, credits, or the license text is **completely optional**. You may copy and paste the code directly into your firmware or product codebase and modify it to match your board specifications (incurring zero legal audit or product manual documentation burden).
-* **Honor System (Attribution Appreciated)**:
-  While not legally required, if this template helps streamline your workflow or product development, a repository Star or a small credit note (`Tsukuyomi Japan Code Lab` / `TJCL`) in code headers or documentation would be greatly appreciated.
+* **License Overview**:  
+  MIT-0 is a license that does not require users to retain copyright notices or license text (no attribution required). You are free to modify and integrate it into commercial or open-source projects.
+* **Voluntary Attribution (Honor System)**:  
+  While not required, a repository Star or a voluntary credit note (`Tsukuyomi Japan Code Lab`) is always appreciated if this template proves useful in your projects.
 
 ---
 
+<!-- Original repository copyright notice -->
 Copyright (c) 2026 Tsukuyomi Japan Code Lab
